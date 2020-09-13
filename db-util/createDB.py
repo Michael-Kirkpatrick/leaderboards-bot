@@ -1,5 +1,6 @@
 import sqlite3
 from os import getcwd
+from os.path import join, dirname
 from sqlite3 import Error
 
 
@@ -76,4 +77,5 @@ def create_db(db_path):
 
 
 if __name__ == '__main__':
-    create_db(getcwd() + "\..\db\leaderboards.db")
+    create_db(join(dirname(getcwd()), "db", "leaderboards.db"))
+    
