@@ -1,3 +1,5 @@
+""" Create a production environment database """
+
 import sqlite3
 from os import getcwd
 from os.path import join, dirname
@@ -5,6 +7,8 @@ from sqlite3 import Error
 
 
 def create_connection(db_file):
+    """Create a connection to the given sqlite3 database file path"""
+    print(db_file)
     conn = None
     try:
         conn = sqlite3.connect(db_file)
@@ -15,24 +19,22 @@ def create_connection(db_file):
     return conn
 
 
-def execute_sql(conn, create_table_sql):
+def execute_sql(conn, sql):
+    """Execute the given sql query on the given connection"""
     try:
         c = conn.cursor()
-        c.execute(create_table_sql)
+        c.execute(sql)
     except Error as e:
         print(e)
 
-    return
-
 
 def create_db(db_path):
-
+    """Create the database via a series of initialization queries"""
     sql_create_guilds_table = """CREATE TABLE guilds (
                                     id integer NOT NULL PRIMARY KEY,
                                     created_date text DEFAULT (strftime('%Y-%m-%d %H:%M:%S:%s','now', 'localtime')),
                                     updated_date text DEFAULT (strftime('%Y-%m-%d %H:%M:%S:%s','now', 'localtime')),
                                     config_roles text DEFAULT NULL,
-                                    command_prefix text DEFAULT "!",
                                     default_leaderboard integer DEFAULT NULL,
                                     stat_mapping text DEFAULT '{"Mapping":[]}'
                                 ); """
@@ -73,9 +75,7 @@ def create_db(db_path):
         print("Error! cannot create the database connection.")
 
     conn.close()
-    return
 
 
 if __name__ == '__main__':
     create_db(join(dirname(getcwd()), "db", "leaderboards.db"))
-    
