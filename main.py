@@ -7,8 +7,9 @@ from typing import Optional
 import re
 import asyncio
 import sqlite3
-import discord
 import datetime
+import sys
+import discord
 from discord import app_commands
 import menu
 import modal
@@ -83,6 +84,9 @@ if run_env == 'prod':
     config_vars = prod_vars
 else:
     config_vars = dev_vars
+
+if len(sys.argv) > 1:
+    config_vars['DB_PATH'] = sys.argv[1]
 client = LeaderboardsBot(config_vars)
 
 
