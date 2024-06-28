@@ -1,0 +1,16 @@
+# Copy this file to /etc/systemd/system with the correct paths inserted. Then:
+# sudo systemctl daemon-reload
+# sudo systemctl enable leaderboards-bot.service
+# sudo systemctl start leaderboards-bot.service
+[Unit]
+Description=Service to handle the leaderboards bot
+
+[Service]
+Type=exec
+WorkingDirectory=/path/to/leaderboards/bot
+ExecStart=python ./main.py /path/to/leaderboards/bot
+Restart=always
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target
