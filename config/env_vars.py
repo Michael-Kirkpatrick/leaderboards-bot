@@ -25,8 +25,6 @@ _intents.dm_typing = False
 _intents.guild_scheduled_events = False
 _intents.auto_moderation_configuration = False
 _intents.auto_moderation_execution = False
-_intents.guild_polls = False
-_intents.dm_polls = False
 
 
 prod_vars = {
