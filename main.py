@@ -8,6 +8,7 @@ import re
 import asyncio
 import sqlite3
 import discord
+import datetime
 from discord import app_commands
 import menu
 import modal
@@ -206,6 +207,27 @@ def get_stat_mapping(guild_id):
         print(f"Error getting stat mapping from guild with id: {guild_id}\n\t Error: {e}")
     finally:
         conn.close()
+
+
+async def verify_slow_mode(interaction: discord.Interaction) -> bool:
+    delay = interaction.channel.slowmode_delay
+    if delay is None or delay <= 0:
+        return True
+
+    now = datetime.datetime.now(datetime.UTC)
+    delay_delta = datetime.timedelta(seconds=delay)
+    cutoff_time = now - delay_delta
+    async for message in interaction.channel.history(after=cutoff_time, oldest_first=False):
+        # If message is by the current user, or message is a result of the user's former interaction (but not an ephemeral interaction)
+        if message.author.id == interaction.user.id or (message.interaction.user.id == interaction.user.id and not message.flags.ephemeral):
+            time_since_message_was_sent = now - message.created_at
+            remaining_cd = delay_delta - time_since_message_was_sent
+            hours, remainder = divmod(remaining_cd.seconds, 3600)
+            minutes, seconds = divmod(remainder, 60)
+            await reply(interaction, "Must wait for slowmode cooldown. Remaining time: {:02}:{:02}:{:02}".format(int(hours), int(minutes), int(seconds)), ephemeral=True)
+            return False
+
+    return True
 
 
 @client.event
@@ -687,6 +709,9 @@ async def _count_channel_history(channel, users):
 @client.tree.command(name="d", description="Roll a die with the given number of sides")
 @app_commands.describe(sides='Number of sides on the die')
 async def dice_roll(interaction: discord.Interaction, sides: int):
+    if not await verify_slow_mode(interaction):
+        return
+
     user = interaction.user
     roll_result = randint(1, sides)
 
@@ -707,6 +732,9 @@ async def dice_roll(interaction: discord.Interaction, sides: int):
 @client.tree.command(name='leaderboard', description="View a leaderboard")
 @app_commands.describe(leaderboard_id='Id of the leaderboard you wish to view')
 async def leaderboard(interaction: discord.Interaction, leaderboard_id: Optional[int] = None):
+    if not await verify_slow_mode(interaction):
+        return
+
     if leaderboard_id is not None:
         await display_leaderboard(interaction, leaderboard_id)
         return
@@ -771,6 +799,8 @@ async def display_user_id(interaction: discord.Interaction):
 
 @client.tree.command(name="stats", description="Display the currently tracked stats")
 async def display_tracked_stats(interaction: discord.Interaction):
+    if not await verify_slow_mode(interaction):
+        return
     await reply(interaction, get_server_stats_string(interaction.guild_id, get_stat_mapping(interaction.guild_id)), "Tracked stats:")
 
 
