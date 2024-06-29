@@ -235,6 +235,7 @@ async def verify_slow_mode(interaction: discord.Interaction) -> bool:
             hours, remainder = divmod(remaining_cd.seconds, 3600)
             minutes, seconds = divmod(remainder, 60)
             await reply(interaction, "Must wait for slowmode cooldown. Remaining time: {:02}:{:02}:{:02}".format(int(hours), int(minutes), int(seconds)), ephemeral=True)
+            interaction.extras['failed'] = True
             return False
 
     return True
@@ -262,6 +263,9 @@ async def on_app_command_completion(interaction: discord.Interaction, command):
         return
 
     if not 'behave_as_message' in command.extras:
+        return
+
+    if 'failed' in interaction.extras:
         return
 
     stat_mapping, _ = on_message_retrieve_guild_data(interaction.guild.id)
