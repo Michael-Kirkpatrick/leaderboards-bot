@@ -274,6 +274,17 @@ async def on_message(message: discord.Message):
             for col in stat_cols:
                 update_user_stat(message.author.id, message.guild.id, col, "increment")
 
+    # Track any emojis in the message. Count only once evne if multiple occurences exist.
+    custom_emojis = set(re.findall(r'<:\w*:\d*>', message.content))
+    custom_emojis_ids = [e.split(':')[-1].replace('>', '') for e in custom_emojis]
+    for emoji_id in custom_emojis_ids:
+        # Verify real emoji and not injection before saving to db
+        try:
+            await message.guild.fetch_emoji(emoji_id)
+            update_emote_count(message.guild.id, emoji_id, True)
+        except discord.errors.NotFound:
+            print("Failed to update count for emoji not found in the guild.")
+
     # Attempt to sync commands to the guild if necessary. Guild may not have been in database on startup
     await sync_commands_to_guild(client, message.guild.id)
 
