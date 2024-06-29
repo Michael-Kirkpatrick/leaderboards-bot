@@ -3,7 +3,8 @@
 """
 TODO:
 - Add a app_commands.check function to check for administrator or configured roles to handle permissions, rather than use defaults.
-
+- Create a proper database migration tool
+- Admin command to remove deleted emojis from the emoji leaderboard. Just delete them from database entirely if they aren't found.
 """
 
 import os
@@ -143,6 +144,26 @@ def update_user_stat(user_id, guild_id, stat_col, value):
         conn.close()
 
 
+def update_emote_count(guild_id, emote_id, increment):
+    """Update the usage counter for an emote. Set increment True to increment, False to decrement."""
+    conn = create_connection()
+    cur = conn.cursor()
+
+    try:
+        sql = f"""  INSERT INTO guilds_emotes(guild_id, emote_id, emote_count) VALUES(?,?,1)
+                    ON CONFLICT(guild_id, emote_id) DO UPDATE 
+                    SET emote_count = emote_count {'+' if increment else '-'} 1
+                    WHERE guild_id = ? AND emote_id = ?
+                """
+        params = (guild_id, emote_id, guild_id, emote_id)
+        cur.execute(sql, params)
+        conn.commit()
+    except Exception as e:
+        print(f"Failed to update emote count for guild: {guild_id} and emote {emote_id}\n\tError - {e}")
+    finally:
+        conn.close()
+
+
 def get_basic_embed(msg):
     return discord.Embed(color=client.bot_color, description=msg)
 
@@ -274,6 +295,18 @@ async def on_app_command_completion(interaction: discord.Interaction, command):
         if stat_cols:
             for col in stat_cols:
                 update_user_stat(interaction.user.id, interaction.guild.id, col, "increment")
+
+
+@client.event
+async def on_raw_reaction_add(event: discord.RawReactionActionEvent):
+    if event.emoji.id is not None: # Server emotes have IDs, standard emojis just have names which are their unicode representation
+        update_emote_count(event.guild_id, event.emoji.id, True)
+
+
+@client.event
+async def on_raw_reaction_remove(event: discord.RawReactionActionEvent):
+    if event.emoji.id is not None:
+        update_emote_count(event.guild_id, event.emoji.id, False)
 
 
 def get_stat_description(stat, guild_id):
@@ -939,6 +972,35 @@ async def count_guild_history(interaction: discord.Interaction, after: Optional[
             await reply(interaction, "Successfully counted guild history.", ephemeral=True)
         else:
             await reply(interaction, "Total server messages not tracked. Try config to start tracking.")
+
+
+@client.tree.command(name='emojis', description="View a leaderboard of the most popular server emojis", extras={"behave_as_message": True})
+@app_commands.describe(show_all='View all emojis')
+async def display_emoji_leaderboard(interaction: discord.Interaction, show_all: Optional[bool] = None):
+    conn = create_connection()
+    cur = conn.cursor()
+    sql = f"SELECT emote_id, emote_count FROM guilds_emotes WHERE guild_id = ? ORDER BY emote_count DESC {'' if show_all else 'LIMIT 10'}"
+    cur.execute(sql, (interaction.guild.id,))
+    rows = cur.fetchall()
+
+    desc = ""
+    i = 1
+    for row in rows:
+        try:
+            emoji = await interaction.guild.fetch_emoji(row[0])
+            emoji_name = emoji.name
+            emoji_id = emoji.id
+        except discord.errors.NotFound:
+            emoji_name = "DELETED"
+            emoji_id = None
+
+        if emoji_id is not None:
+            desc += f"**{i}.** <:{emoji_name}:{emoji_id}> {emoji_name} - {row[1]}\n"
+        else:
+            desc += f"**{i}.** {emoji_name} - {row[1]}\n"
+        i += 1
+
+    await reply(interaction, desc, "Emoji Leaderboard")
 
 
 client.run(config_vars['BOT_TOKEN'])

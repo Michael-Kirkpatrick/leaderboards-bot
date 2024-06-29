@@ -63,6 +63,15 @@ def create_db(db_path):
                                     UPDATE guilds_users SET updated_date = strftime('%Y-%m-%d %H:%M:%S:%s','now', 'localtime') where guild_id = old.guild_id AND user_id = old.user_id;
                                 end """
 
+    sql_create_guilds_emotes_table = """
+                                    CREATE TABLE guilds_emotes (
+                                        guild_id integer NOT NULL,
+                                        emote_id integer NOT NULL,
+                                        emote_count integer NOT NULL DEFAULT 0,
+                                        FOREIGN KEY (guild_id) REFERENCES guilds(id),
+                                        PRIMARY KEY (guild_id, emote_id)
+                                    );"""
+
     conn = create_connection(db_path)
 
     if conn is not None:
@@ -70,6 +79,7 @@ def create_db(db_path):
         execute_sql(conn, sql_create_guilds_users_table)
         execute_sql(conn, sql_create_guilds_update_trigger)
         execute_sql(conn, sql_create_guilds_users_update_trigger)
+        execute_sql(conn, sql_create_guilds_emotes_table)
         conn.commit()
     else:
         print("Error! cannot create the database connection.")
