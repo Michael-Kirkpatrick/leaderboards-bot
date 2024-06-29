@@ -1,5 +1,11 @@
 """Main entry point to LeaderboardsBot"""
 
+"""
+TODO:
+- Add a app_commands.check function to check for administrator or configured roles to handle permissions, rather than use defaults.
+
+"""
+
 import os
 from random import randint
 from json import loads, dumps
@@ -239,7 +245,7 @@ async def on_message(message: discord.Message):
     if message.author.id == client.user.id:
         return
 
-    stat_mapping, config_roles = on_message_retrieve_guild_data(message.guild.id)
+    stat_mapping, _ = on_message_retrieve_guild_data(message.guild.id)
     if stat_mapping:
         stat_cols = get_stat_col(message.channel, stat_mapping, "total_messages")
         if stat_cols:
@@ -248,6 +254,22 @@ async def on_message(message: discord.Message):
 
     # Attempt to sync commands to the guild if necessary. Guild may not have been in database on startup
     await sync_commands_to_guild(client, message.guild.id)
+
+
+@client.event
+async def on_app_command_completion(interaction: discord.Interaction, command):
+    if interaction.user.id == client.user.id:
+        return
+
+    if not 'behave_as_message' in command.extras:
+        return
+
+    stat_mapping, _ = on_message_retrieve_guild_data(interaction.guild.id)
+    if stat_mapping:
+        stat_cols = get_stat_col(interaction.channel, stat_mapping, "total_messages")
+        if stat_cols:
+            for col in stat_cols:
+                update_user_stat(interaction.user.id, interaction.guild.id, col, "increment")
 
 
 def get_stat_description(stat, guild_id):
@@ -699,8 +721,8 @@ async def delete_role_from_config_roles(interaction: discord.Interaction):
     return
 
 
-async def _count_channel_history(channel, users):
-    async for message in channel.history(limit=None):
+async def _count_channel_history(channel: discord.abc.GuildChannel, users, after: datetime.datetime = None):
+    async for message in channel.history(limit=None, after=after):
         if message.author.bot:
             continue
 
@@ -710,7 +732,7 @@ async def _count_channel_history(channel, users):
             users[message.author.id] += 1
 
 
-@client.tree.command(name="d", description="Roll a die with the given number of sides")
+@client.tree.command(name="d", description="Roll a die with the given number of sides", extras={"behave_as_message": True})
 @app_commands.describe(sides='Number of sides on the die')
 async def dice_roll(interaction: discord.Interaction, sides: int):
     if not await verify_slow_mode(interaction):
@@ -733,7 +755,7 @@ async def dice_roll(interaction: discord.Interaction, sides: int):
                 update_user_stat(user.id, interaction.guild.id, col, "increment")
 
 
-@client.tree.command(name='leaderboard', description="View a leaderboard")
+@client.tree.command(name='leaderboard', description="View a leaderboard", extras={"behave_as_message": True})
 @app_commands.describe(leaderboard_id='Id of the leaderboard you wish to view')
 async def leaderboard(interaction: discord.Interaction, leaderboard_id: Optional[int] = None):
     if not await verify_slow_mode(interaction):
@@ -801,7 +823,7 @@ async def display_user_id(interaction: discord.Interaction):
     await reply(interaction, interaction.user.id, ephemeral=True)
 
 
-@client.tree.command(name="stats", description="Display the currently tracked stats")
+@client.tree.command(name="stats", description="Display the currently tracked stats", extras={"behave_as_message": True})
 async def display_tracked_stats(interaction: discord.Interaction):
     if not await verify_slow_mode(interaction):
         return
@@ -811,13 +833,22 @@ async def display_tracked_stats(interaction: discord.Interaction):
 # May be good to put in some type of limit to each message history counter.
 # Holding the users object in memory may not work for really large servers with many users.
 @client.tree.command(name='countchannelhistory', description="Count the number of historical messages in the current channel")
+@app_commands.describe(after='Count history for messages sent after this datetime. UTC datetime in format: YYYY-mm-dd hh:MM')
 @app_commands.default_permissions()
-async def count_channel_history(interaction: discord.Interaction):
+async def count_channel_history(interaction: discord.Interaction, after: Optional[str] = None):
     channel_id = interaction.channel_id
     channel = interaction.guild.get_channel(channel_id)
     if channel is None:
         await reply(interaction, f"Channel with ID '{channel_id}' not found. Cannot count history.", ephemeral=True)
         return
+
+    after_datetime = None
+    if after is not None:
+        try:
+            after_datetime = datetime.datetime.strptime(after, "%Y-%m-%d %H:%M").replace(tzinfo=datetime.timezone.utc)
+        except ValueError:
+            await reply(interaction, "Invalid 'after' datetime given. Please verify format is YYYY-mm-dd hh:MM")
+            return
 
     stat_mapping = get_stat_mapping(interaction.guild_id)
     if stat_mapping:
@@ -825,7 +856,7 @@ async def count_channel_history(interaction: discord.Interaction):
         if stat_cols:
             await interaction.response.defer(ephemeral=True, thinking=True)
             users = {}
-            await _count_channel_history(channel, users)
+            await _count_channel_history(channel, users, after_datetime)
             for col in stat_cols:
                 for user, user_val in users.items():
                     update_user_stat(user, channel.guild.id, col, user_val)
@@ -835,12 +866,21 @@ async def count_channel_history(interaction: discord.Interaction):
 
 
 @client.tree.command(name='countcategoryhistory', description="Count the number of historical messages in the current category")
+@app_commands.describe(after='Count history for messages sent after this datetime. UTC datetime in format: YYYY-mm-dd hh:MM')
 @app_commands.default_permissions()
-async def count_category_history(interaction: discord.Interaction):
+async def count_category_history(interaction: discord.Interaction, after: Optional[str] = None):
     category_id = interaction.channel.category_id
     if category_id is None:
         reply(interaction, "This channel is not part of any category. Cannot count category message history.")
         return
+
+    after_datetime = None
+    if after is not None:
+        try:
+            after_datetime = datetime.datetime.strptime(after, "%Y-%m-%d %H:%M").replace(tzinfo=datetime.timezone.utc)
+        except ValueError:
+            await reply(interaction, "Invalid 'after' datetime given. Please verify format is YYYY-mm-dd hh:MM")
+            return
 
     category = None
     for category_it in interaction.guild.categories:
@@ -860,7 +900,7 @@ async def count_category_history(interaction: discord.Interaction):
             await interaction.response.defer(ephemeral=True, thinking=True)
             users = {}
             for channel in channel.category.text_channels:
-                await _count_channel_history(channel, users)
+                await _count_channel_history(channel, users, after_datetime)
             for col in stat_cols:
                 for user, user_val in users.items():
                     update_user_stat(user, channel.guild.id, col, user_val)
@@ -870,8 +910,17 @@ async def count_category_history(interaction: discord.Interaction):
 
 
 @client.tree.command(name='countguildhistory', description="Count the number of historical messages in the guild")
+@app_commands.describe(after='Count history for messages sent after this datetime. UTC datetime in format: YYYY-mm-dd hh:MM')
 @app_commands.default_permissions()
-async def count_guild_history(interaction: discord.Interaction):
+async def count_guild_history(interaction: discord.Interaction, after: Optional[str] = None):
+    after_datetime = None
+    if after is not None:
+        try:
+            after_datetime = datetime.datetime.strptime(after, "%Y-%m-%d %H:%M").replace(tzinfo=datetime.timezone.utc)
+        except ValueError:
+            await reply(interaction, "Invalid 'after' datetime given. Please verify format is YYYY-mm-dd hh:MM")
+            return
+
     stat_mapping = get_stat_mapping(interaction.guild_id)
     if stat_mapping:
         stat_cols = get_stat_col(interaction.channel, stat_mapping, "total_messages", GuildOnly=True)
@@ -879,7 +928,7 @@ async def count_guild_history(interaction: discord.Interaction):
             await interaction.response.defer(ephemeral=True, thinking=True)
             users = {}
             for channel in interaction.guild.text_channels:
-                await _count_channel_history(channel, users)
+                await _count_channel_history(channel, users, after_datetime)
             for col in stat_cols:
                 for user, user_val in users.items():
                     update_user_stat(user, interaction.guild_id, col, user_val)
